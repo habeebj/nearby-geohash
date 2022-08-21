@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Near by map</title>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.9.2/mapbox-gl.css" rel="stylesheet">
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.9.2/mapbox-gl.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        #map {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+        }
+
+        #location-container {
+            position: absolute;
+            z-index: 99;
+            /* width: 50%; */
+            top: 0;
+            right: 0;
+            padding: 0.4rem;
+            border: 2px solid #e3e3e3;
+            border-radius: 3px;
+            margin: 0.5rem;
+            background-color: white;
+        }
+
+        #location-container input {
+            font-size: medium;
+            padding: 6px 6px;
+            width: 100;
+            border: 1px solid #e3e3e3;
+            border-radius: 3px;
+        }
+
+        #location-container button:hover {
+            background-color: #fff;
+            color: #202020;
+            cursor: pointer;
+        }
+
+        #location-container label {
+            margin: 6px 3px;
+            display: block;
+            font-size: small;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        #location-container button {
+            outline: none;
+            transition: all;
+            padding: 6px 12px;
+            border-radius: 3px;
+            background-color: #202020;
+            color: #f1f1f1;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="location-container">
+        <label>Agent found <span id="agent-count"></span></label>
+        <div>
+            <input type="text" value="6.59651,3.34205" placeholder="Enter location (lat,long)" id="location">
+            <button onclick="find()">Find</button>
+        </div>
+    </div>
+    <div id="map"></div>
+    <script>
+        mapboxgl.accessToken = 'pk.eyJ1IjoiaG95bWUiLCJhIjoiY2p0dGc1czc5MTdmbDQ0bGw2OTh5ZDRqZiJ9.pb7YMI6Fzvr994qC9wrxZA';
+        const map = new mapboxgl.Map({
+            container: 'map', // container ID
+            style: 'mapbox://styles/mapbox/streets-v11', // style URL
+            center: [3.34205, 6.59651], // starting position [lng, lat]
+            zoom: 14, // starting zoom
+            projection: 'globe' // display the map as a 3D globe
+        });
+
+        map.on('style.load', () => {
+            map.setFog({}); // Set the default atmosphere style
+        });
+
+        let markers = [];
+
+        function removeMarkers() {
+            for (let index = 0; index < markers.length; index++) {
+                markers[index].remove();
+            }
+            markers.splice(0, markers.length);
+        }
+
+        function getCoordinate() {
+            var location = document.getElementById("location").value;
+            var coordinates = location.split(",");
+            if (coordinates.length != 2)
+                alert("invalid location");
+
+            var lng = coordinates[1];
+            var lat = coordinates[0]
+            return { lat, lng };
+        }
+
+        // Create a default Marker and add it to the map.
+        const marker = new mapboxgl.Marker({ color: 'black', draggable: true })
+            .setLngLat(getCoordinate())
+            .addTo(map);
+
+        marker.on('dragend', function () {
+            const lngLat = marker.getLngLat();
+            document.getElementById("location").value = `${lngLat.lat},${lngLat.lng}`;
+        });
+        
+        
+        function find() {
+            document.getElementById("agent-count").innerText = null;
+            removeMarkers();
+            var lngLat = getCoordinate();
+            var agentCount = 0;
+            const sse = new EventSource(`http://cdkag-agent-bdhn0hrwr6sf-1403737124.eu-west-1.elb.amazonaws.com/agents/search/nearby?Latitude=${lngLat.lat}&Longitude=${lngLat.lng}`);
+            sse.addEventListener('nearby', (e) => {
+                console.log(e.data)
+                agentCount++;
+                document.getElementById("agent-count").innerText = agentCount;
+                var data = JSON.parse(e.data);
+                const marker = new mapboxgl.Marker()
+                    .setLngLat([data.longitude, data.latitude])
+                    .addTo(map);
+
+                markers.push(marker);
+            });
+
+            // Event source always reconnecting on message end.
+            // Add a disconnect logic
+            // disconnect on reconnecting or disconnect if sever is resending location data
+            let reconnecting = false;
+            sse.onopen = function (e) {
+                if (reconnecting === false) {
+                    reconnecting = true;
+                    return;
+                }
+                sse.close();
+            };
+        }
+
+    </script>
+
+</body>
+
+</html>

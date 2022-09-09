@@ -7,7 +7,12 @@
     <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
     <link href="https://api.mapbox.com/mapbox-gl-js/v2.9.2/mapbox-gl.css" rel="stylesheet">
     <script src="https://api.mapbox.com/mapbox-gl-js/v2.9.2/mapbox-gl.js"></script>
+    <script src='https://npmcdn.com/mapbox-gl-circle/dist/mapbox-gl-circle.min.js'></script>
     <style>
+        * {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
         body {
             margin: 0;
             padding: 0;
@@ -23,7 +28,7 @@
         #location-container {
             position: absolute;
             z-index: 99;
-            /* width: 50%; */
+            max-width: 300px;
             top: 0;
             right: 0;
             padding: 0.4rem;
@@ -35,8 +40,9 @@
 
         #location-container input {
             font-size: medium;
+            box-sizing: border-box;
             padding: 6px 6px;
-            width: 100;
+            width: 100%;
             border: 1px solid #e3e3e3;
             border-radius: 3px;
         }
@@ -51,7 +57,10 @@
             margin: 6px 3px;
             display: block;
             font-size: small;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        #location-container label input {
+            margin-top: 2px;
         }
 
         #location-container button {
@@ -61,24 +70,51 @@
             border-radius: 3px;
             background-color: #202020;
             color: #f1f1f1;
+            width: 100%;
+        }
+
+        pre.ui-distance {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            padding: 5px 10px;
+            background: rgba(0, 0, 0, 0.5);
+            color: #fff;
+            font-size: 11px;
+            line-height: 18px;
+            border-radius: 3px;
+        }
+
+        pre#radius-distance {
+            bottom: 40px;
         }
     </style>
 </head>
 
 <body>
     <div id="location-container">
-        <label>Agent found <span id="agent-count"></span></label>
+        <b>Agents found <span id="agent-count"></span></b>
         <div>
-            <input type="text" value="6.59651,3.34205" placeholder="Enter location (lat,long)" id="location">
+            <!-- <input type="text" value="8.44565361607845,4.53473299741745" placeholder="Enter location (lat,long)" id="location"> -->
+            <label for="location"> Location (lat,lng)
+                <input type="text" onchange="moveMarker()" value="6.59651,3.34205"
+                    placeholder="Enter location (lat,long)" id="location">
+            </label>
+            <label for="radius">Radius
+                <input type="text" value="2000" placeholder="Enter radius" id="radius">
+            </label>
             <button onclick="find()">Find</button>
         </div>
     </div>
     <div id="map"></div>
+    <pre id='distance' class='ui-distance'>Click to get distance from reference marker</pre>
+    <pre id='radius-distance' class='ui-distance'>resize marker to view distance </pre>
     <script>
         mapboxgl.accessToken = 'pk.eyJ1IjoiaG95bWUiLCJhIjoiY2p0dGc1czc5MTdmbDQ0bGw2OTh5ZDRqZiJ9.pb7YMI6Fzvr994qC9wrxZA';
         const map = new mapboxgl.Map({
             container: 'map', // container ID
             style: 'mapbox://styles/mapbox/streets-v11', // style URL
+            // center: [4.53473299741745,8.44565361607845], // starting position [lng, lat]
             center: [3.34205, 6.59651], // starting position [lng, lat]
             zoom: 14, // starting zoom
             projection: 'globe' // display the map as a 3D globe
@@ -97,14 +133,18 @@
             markers.splice(0, markers.length);
         }
 
+        function moveMarker() {
+            marker.setLngLat(getCoordinate());
+        }
+
         function getCoordinate() {
             var location = document.getElementById("location").value;
             var coordinates = location.split(",");
             if (coordinates.length != 2)
                 alert("invalid location");
 
-            var lng = coordinates[1];
-            var lat = coordinates[0]
+            var lng = parseFloat(coordinates[1]);
+            var lat = parseFloat(coordinates[0]);
             return { lat, lng };
         }
 
@@ -117,14 +157,36 @@
             const lngLat = marker.getLngLat();
             document.getElementById("location").value = `${lngLat.lat},${lngLat.lng}`;
         });
-        
-        
+
+        map.on('click', function (ev) {
+            var container = document.getElementById('distance');
+            container.innerHTML = marker.getLngLat().distanceTo(ev.lngLat).toFixed(2) + 'm';
+        });
+
+        var minRadius = 10;
+        var radius = 250;
+        var circle = new MapboxCircle({ lat: 0, lng: 0 }, radius, {
+            editable: true,
+            minRadius: minRadius,
+            fillColor: '#29AB87'
+        }).addTo(map);
+
+        function popup(data) {
+            return new mapboxgl.Popup({ offset: 25 })
+                .setHTML(
+                    "<b>" + data.businessName + "</b></br>" + data.address + "<br>" + "<a href='tel:" + data.phoneNumber + "'>" + data.phoneNumber + "</a>" + 
+                    "<br>Rating: " + data.rating
+                );
+        }
+
         function find() {
             document.getElementById("agent-count").innerText = null;
+            var radius = document.getElementById("radius").value;
             removeMarkers();
             var lngLat = getCoordinate();
             var agentCount = 0;
-            const sse = new EventSource(`http://cdkag-agent-bdhn0hrwr6sf-1403737124.eu-west-1.elb.amazonaws.com/agents/search/nearby?Latitude=${lngLat.lat}&Longitude=${lngLat.lng}`);
+            const sse = new EventSource(`http://cdkag-agent-bdhn0hrwr6sf-1403737124.eu-west-1.elb.amazonaws.com/api/agents/search/nearby?Latitude=${lngLat.lat}&Longitude=${lngLat.lng}&Radius=${radius}`);
+            // const sse = new EventSource(`https://localhost:7234/api/agents/search/nearby?Latitude=${lngLat.lat}&Longitude=${lngLat.lng}&radius=${radius}`);
             sse.addEventListener('nearby', (e) => {
                 console.log(e.data)
                 agentCount++;
@@ -132,9 +194,23 @@
                 var data = JSON.parse(e.data);
                 const marker = new mapboxgl.Marker()
                     .setLngLat([data.longitude, data.latitude])
+                    .setPopup(popup(data))
                     .addTo(map);
 
                 markers.push(marker);
+            });
+
+            circle.remove()
+            circle = new MapboxCircle({ lat: lngLat.lat, lng: lngLat.lng }, radius, {
+                editable: true,
+                minRadius: minRadius,
+                fillColor: '#29AB87'
+            }).addTo(map);
+
+            circle.on('radiuschanged', function (circleObj) {
+                var container = document.getElementById("radius-distance");
+                container.innerHTML = "Radius:" + circleObj.getRadius() + 'm';
+                document.getElementById("radius").value = circleObj.getRadius();
             });
 
             // Event source always reconnecting on message end.
